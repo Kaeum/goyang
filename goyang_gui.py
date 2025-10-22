@@ -112,6 +112,7 @@ class ReservationWindow(QMainWindow):
 
         citizen_box = QHBoxLayout()
         self.citizen_check = QCheckBox("고양시민")
+        self.citizen_check.setChecked(True)
         self.senior_check = QCheckBox("고령자")
         citizen_box.addWidget(self.citizen_check)
         citizen_box.addWidget(self.senior_check)
