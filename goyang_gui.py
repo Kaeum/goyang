@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -206,9 +207,7 @@ class ReservationWindow(QMainWindow):
             str(payment_amount),
         ]
 
-        goyang_path = str(Path(__file__).resolve().parent / "goyang_client.py")
-        arguments = [
-            goyang_path,
+        client_args = [
             "--login-userid",
             user_id,
             "--login-password",
@@ -227,12 +226,22 @@ class ReservationWindow(QMainWindow):
             str(payment_amount),
         ]
 
+        if getattr(sys, "frozen", False):
+            program = sys.executable
+            process_args = ["--client", *client_args]
+            command_preview = " ".join([program, *process_args])
+        else:
+            program = sys.executable
+            script_path = str(Path(__file__).resolve())
+            process_args = [script_path, "--client", *client_args]
+            command_preview = " ".join([program, *process_args])
+
         self.log(f"예약 스케줄 설정: {schedule_dt.astimezone(ZoneInfo('Asia/Seoul'))}")
-        self.log(f"명령어: python {' '.join(arguments)}")
+        self.log(f"명령어: {command_preview}")
 
         self._scheduled_timer = QTimer(self)
         self._scheduled_timer.setSingleShot(True)
-        self._scheduled_timer.timeout.connect(lambda: self.run_process(arguments))
+        self._scheduled_timer.timeout.connect(lambda: self.run_process(program, process_args))
         self._scheduled_timer.start(int(delay_seconds * 1000))
 
         self.schedule_button.setEnabled(False)
@@ -248,13 +257,13 @@ class ReservationWindow(QMainWindow):
         self.cancel_button.setEnabled(False)
         self.statusbar.clearMessage()
 
-    def run_process(self, arguments: list[str]) -> None:
+    def run_process(self, program: str, arguments: list[str]) -> None:
         self._scheduled_timer = None
         self.schedule_button.setEnabled(True)
         self.cancel_button.setEnabled(False)
 
         self._process = QProcess(self)
-        self._process.setProgram(sys.executable)
+        self._process.setProgram(program)
         self._process.setArguments(arguments)
         self._process.setProcessChannelMode(QProcess.MergedChannels)
         self._process.readyReadStandardOutput.connect(self._read_process_output)
@@ -304,12 +313,24 @@ class ReservationWindow(QMainWindow):
                 self.court_number_spin.setValue(numbers[0])
 
 
-def main() -> None:
+def main(argv: Optional[list[str]] = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--client", action="store_true")
+    args, rest = parser.parse_known_args(argv)
+
+    if args.client:
+        from goyang_client import main as client_main
+
+        return client_main(rest)
+
     app = QApplication(sys.argv)
     window = ReservationWindow()
     window.show()
-    sys.exit(app.exec())
+    return app.exec()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
