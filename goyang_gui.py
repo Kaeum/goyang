@@ -225,8 +225,6 @@ class ReservationWindow(QMainWindow):
             user_id,
             "--payment-amount",
             str(payment_amount),
-            "--curl-log-file",
-            "curl.log",
         ]
 
         self.log(f"예약 스케줄 설정: {schedule_dt.astimezone(ZoneInfo('Asia/Seoul'))}")
