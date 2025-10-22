@@ -35,51 +35,8 @@ PAYMENT_POP_URL = "https://spay.kcp.co.kr/kcpPaypop.do?encType="
 PAYMENT_CALLBACK_URL = "https://www.gytennis.or.kr/rsvPy"
 ORDER_RESULT_URL = "https://www.gytennis.or.kr/ordrRst"
 
-CURL_LOG_FILE: Optional[Path] = None
-
-
 def quote_for_shell(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
-
-
-def build_curl_command(method: str, url: str, headers: Dict[str, str], body: Optional[str]) -> str:
-    parts: List[str] = ["curl"]
-    upper_method = method.upper()
-    if upper_method != "GET":
-        parts += ["-X", upper_method]
-    for key, value in headers.items():
-        if value is None:
-            continue
-        lower = key.lower()
-        if lower in {"host", "content-length"}:
-            continue
-        parts += ["-H", quote_for_shell(f"{key}: {value}")]
-    if body:
-        parts += ["--data-binary", quote_for_shell(body)]
-    parts.append(quote_for_shell(url))
-    return " ".join(parts)
-
-
-def set_curl_log_file(path: Optional[str]) -> None:
-    global CURL_LOG_FILE
-    if not path:
-        CURL_LOG_FILE = None
-        return
-    resolved = Path(path).expanduser()
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-    if not resolved.exists():
-        resolved.touch()
-    CURL_LOG_FILE = resolved
-
-
-def append_curl_log(command: str) -> None:
-    if not CURL_LOG_FILE:
-        return
-    try:
-        with CURL_LOG_FILE.open("a", encoding="utf-8") as handle:
-            handle.write(command + "\n")
-    except OSError:
-        pass
 
 
 class OrderIdParser(HTMLParser):
@@ -200,11 +157,6 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         type=int,
         default=240,
         help="Seconds to wait for the final order confirmation page after payment (ignored when skip-order-wait is set).",
-    )
-    parser.add_argument(
-        "--curl-log-file",
-        default="curl.log",
-        help="Optional path to append curl-style request logs emitted during automation.",
     )
     parser.add_argument(
         "--timeout",
@@ -342,10 +294,9 @@ def launch_browser(
 ) -> webdriver.Chrome:
     chrome_options = Options()
     chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_experimental_option("detach", True)
     if user_agent:
         chrome_options.add_argument(f"--user-agent={user_agent}")
-    if keep_browser_open:
-        chrome_options.add_experimental_option("detach", True)
 
     resolved_path = resolve_chromedriver_path(chromedriver_path, drivers_root)
     chrome_major = detect_chrome_major_version()
@@ -375,7 +326,6 @@ def browser_fetch(
     payload = {key: str(value) for key, value in data.items()}
     allowed_headers = {key: str(value) for key, value in headers.items() if value is not None}
     body_string = urllib.parse.urlencode(payload, doseq=True)
-    append_curl_log(build_curl_command("POST", url, allowed_headers, body_string))
     print(
         "[DEBUG] browser_fetch request:",
         json.dumps(
@@ -554,7 +504,6 @@ def submit_form_to_window(
         "origin": origin,
         "referer": current_url,
     }
-    append_curl_log(build_curl_command("POST", url, payment_log_headers, body_string))
     driver.execute_script(
         """
         (function submitForm(targetUrl, formFields, targetName, reuseTab) {
@@ -769,8 +718,6 @@ def wait_for_payment_window(
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
-    set_curl_log_file(args.curl_log_file)
-
     if args.reuse_browser_tab:
         print(
             "[INFO] --reuse-browser-tab 옵션은 비활성화되며 결제 팝업은 새 창으로 열립니다.",
@@ -848,20 +795,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         except TimeoutException:
             print("[WARN] 결제 준비 페이지 로드 대기 중 요소를 확인하지 못했습니다.", file=sys.stderr)
 
-        driver.execute_script(
-            """
-            const form = document.forms && document.forms.length ? document.forms[0] : document.querySelector("form");
-            if (form) {
-                if (form.good_name) form.good_name.value = arguments[0];
-                if (form.buyr_name) form.buyr_name.value = arguments[1];
-                if (form.good_mny) form.good_mny.value = arguments[2];
-            }
-            """,
-            args.payment_good_name,
-            args.payment_buyer_name,
-            args.payment_amount,
-        )
-
         existing_handles = list(driver.window_handles)
         trigger_result = driver.execute_script(
             """
@@ -930,12 +863,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     except Exception as exc:
         print(f"Failed to complete workflow: {exc}", file=sys.stderr)
         return 1
-    finally:
-        if driver and not args.keep_browser_open:
-            try:
-                driver.quit()
-            except Exception:
-                pass
 
     print(f"Reservation verified with id '{order_id}'.")
     print(f"Verification response status: {verify_result.get('status') if verify_result else 'n/a'}")
@@ -947,10 +874,13 @@ def main(argv: Optional[list[str]] = None) -> int:
             print(
                 "Timed out waiting for the order confirmation page. 결제창에서 진행이 끝나지 않았다면 계속 진행해 주세요."
             )
-    if args.keep_browser_open:
-        print("자동화 완료 후에도 브라우저 창을 열어 두었습니다.")
-    else:
-        print("자동화가 끝난 뒤 브라우저 세션을 종료했습니다.")
+    if driver:
+        print("브라우저 창을 모두 닫을 때까지 기다립니다. (Ctrl+C로 종료 가능)")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
     return 0
 
 
