@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import hmac
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -31,9 +33,10 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QStatusBar,
     QTextEdit,
-    QWidget,
+    QWidget, QInputDialog,
 )
 
+APP_SECRET = "a4d6fef01e194c9b81a7c6151d447e0f"
 
 COURT_INFO: Dict[str, Dict[str, object]] = {
     "성사야외": {
@@ -327,6 +330,32 @@ def main(argv: Optional[list[str]] = None) -> int:
         return client_main(rest)
 
     app = QApplication(sys.argv)
+
+    # ----- Access gate: monthly HMAC code -----
+    # Use a constant for the secret (no file/env fallback per request)
+    secret = APP_SECRET
+
+    current_period = datetime.now().strftime("%Y%m")
+    expected = hmac.new(secret.encode("utf-8"), current_period.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    ok = False
+    for _ in range(3):
+        code, accepted = QInputDialog.getText(
+            None,
+            "접속 코드 확인",
+            "이번 달의 코드 입력:",
+        )
+        if not accepted:
+            sys.exit(1)
+        if code.strip().lower() == expected:
+            ok = True
+            break
+        QMessageBox.warning(None, "코드 불일치", "코드가 올바르지 않습니다. 다시 시도하세요.")
+
+    if not ok:
+        QMessageBox.critical(None, "접근 거부", "코드 검증 실패. 프로그램을 종료합니다.")
+        sys.exit(1)
+
     window = ReservationWindow()
     window.show()
     return app.exec()
