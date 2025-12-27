@@ -7,7 +7,7 @@ import argparse
 import hashlib
 import hmac
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -194,8 +194,10 @@ class ReservationWindow(QMainWindow):
         is_night = slot_number >= 18
 
         schedule_dt = self.schedule_datetime_edit.dateTime().toPython().replace(tzinfo=ZoneInfo("Asia/Seoul"))
+        login_lead_seconds = 180
+        planned_start_dt = schedule_dt - timedelta(seconds=login_lead_seconds)
         now = datetime.now(ZoneInfo("Asia/Seoul"))
-        delay_seconds = max(0, (schedule_dt - now).total_seconds())
+        delay_seconds = max(0, (planned_start_dt - now).total_seconds())
 
         payment_amount = self.calculate_payment_amount(cdate_q, is_night)
         if self.citizen_check.isChecked() or self.senior_check.isChecked():
@@ -227,6 +229,8 @@ class ReservationWindow(QMainWindow):
             user_id,
             "--payment-amount",
             str(payment_amount),
+            "--exec-at",
+            schedule_dt.isoformat(),
         ]
 
         if getattr(sys, "frozen", False):
@@ -239,7 +243,12 @@ class ReservationWindow(QMainWindow):
             process_args = [script_path, "--client", *client_args]
             command_preview = " ".join([program, *process_args])
 
-        self.log(f"예약 스케줄 설정: {schedule_dt.astimezone(ZoneInfo('Asia/Seoul'))}")
+        self.log(
+            f"예약 스케줄 설정: {schedule_dt.astimezone(ZoneInfo('Asia/Seoul'))}"
+        )
+        self.log(
+            f"로그인 준비 시작 예정: {planned_start_dt.astimezone(ZoneInfo('Asia/Seoul'))} (3분 전)"
+        )
         self.log(f"명령어: {command_preview}")
 
         self._scheduled_timer = QTimer(self)

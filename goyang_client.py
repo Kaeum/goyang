@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 import os
 import re
@@ -97,8 +98,17 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--post-login-url",
-        default="https://www.gytennis.or.kr/daily",
+        default="https://www.gytennis.or.kr",
         help="URL to load after login so the browser reflects the authenticated session.",
+    )
+    parser.add_argument(
+        "--exec-at",
+        default="",
+        help=(
+            "ISO8601 timestamp (e.g. 2024-02-20T08:59:50+09:00) indicating when to submit the "
+            "reservation request. When provided the script logs in immediately and then waits until "
+            "this timestamp before continuing."
+        ),
     )
     parser.add_argument(
         "--chromedriver-path",
@@ -718,6 +728,17 @@ def wait_for_payment_window(
 
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
+    exec_at_timestamp: Optional[float] = None
+    if args.exec_at:
+        try:
+            exec_dt = datetime.fromisoformat(args.exec_at)
+        except ValueError as exc:
+            print(f"[ERROR] 실행 시각을 해석할 수 없습니다 (--exec-at): {exc}", file=sys.stderr)
+            return 1
+        if exec_dt.tzinfo is None:
+            local_tz = datetime.now().astimezone().tzinfo
+            exec_dt = exec_dt.replace(tzinfo=local_tz or timezone.utc)
+        exec_at_timestamp = exec_dt.timestamp()
     if args.reuse_browser_tab:
         print(
             "[INFO] --reuse-browser-tab 옵션은 비활성화되며 결제 팝업은 새 창으로 열립니다.",
@@ -764,6 +785,20 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         # Load a page so the user sees the logged-in state once the automation finishes.
         driver.get(args.post_login_url)
+
+        if exec_at_timestamp is not None:
+            wait_seconds = exec_at_timestamp - time.time()
+            if wait_seconds > 0:
+                print(
+                    f"[INFO] 예약 진행 시각까지 {int(wait_seconds)}초 대기합니다...",
+                    file=sys.stderr,
+                )
+                time.sleep(wait_seconds)
+            else:
+                print(
+                    "[WARN] 지정된 실행 시각이 현재보다 이전입니다. 즉시 진행합니다.",
+                    file=sys.stderr,
+                )
 
         reservation_headers = {
             "Accept": common_form_accept,
