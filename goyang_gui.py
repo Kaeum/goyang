@@ -200,8 +200,10 @@ class ReservationWindow(QMainWindow):
         delay_seconds = max(0, (planned_start_dt - now).total_seconds())
 
         payment_amount = self.calculate_payment_amount(cdate_q, is_night)
-        if self.citizen_check.isChecked() or self.senior_check.isChecked():
-            payment_amount //= 2
+        if not self.citizen_check.isChecked():
+            payment_amount = payment_amount * 3 // 2  # 비시민 50% 가산
+        if self.senior_check.isChecked():
+            payment_amount //= 2  # 고령자 50% 할인
 
         good_name = f"{court_name} {court_number}번 예약"
         reserve_slot_parts = [
@@ -345,14 +347,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     secret = APP_SECRET
 
     current_period = datetime.now().strftime("%Y%m")
-    expected = hmac.new(secret.encode("utf-8"), current_period.encode("utf-8"), hashlib.sha256).hexdigest()
+    full_hash = hmac.new(secret.encode("utf-8"), current_period.encode("utf-8"), hashlib.sha256).hexdigest()
+    expected = full_hash[:6]  # 앞 6글자만 사용
 
     ok = False
     for _ in range(3):
         code, accepted = QInputDialog.getText(
             None,
             "접속 코드 확인",
-            "이번 달의 코드 입력:",
+            "이번 달의 6자리 코드 입력:",
         )
         if not accepted:
             sys.exit(1)
